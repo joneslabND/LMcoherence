@@ -9,7 +9,6 @@ rootDir="/Users/stuartjones/Documents/Research/UNDERC/LMcoherence/LMcoherence"
 
 setwd(rootDir)
 
-
 ### using biwavelet coherence to identify cross-lake covariance/coherence
 ### takes a long time with 10 minute data, using hourly data
 
@@ -60,3 +59,56 @@ plot(coher$period,rowMeans(coher$rsq),type='l',xlab="period",ylab="mean Coherenc
 daily=which(abs(coher$period-24)==min(abs(coher$period-24)))
 plot(coher$t,coher$rsq[daily,],type='l',xlab="time",ylab="Coherence")
 
+
+
+########
+# automate pairwise lake comparisons
+########
+pairwise_dailyWTC<-function(lake1,lake2,MCiters=0){
+	dox1=read.table(paste(lake1,'_DO.txt',sep=""),header=TRUE,sep="\t",colClasses=c(datetime="POSIXct"))
+	dox2=read.table(paste(lake2,'_DO.txt',sep=""),header=TRUE,sep="\t",colClasses=c(datetime="POSIXct"))
+	
+	dox=merge(x=dox1,y=dox2,by='datetime')
+	minOfTS=as.numeric(format(dox$datetime,format="%s"))/(60)
+	minOfTS=minOfTS-min(minOfTS)
+	dox=cbind(dox,minOfTS)
+	
+	doxApprox=cbind(seq(min(dox[,4]),max(dox[,4]),by=10),approx(dox[,4],dox[,2],seq(min(dox[,4]),max(dox[,4]),by=10))$y,approx(dox[,4],dox[,3],seq(min(dox[,4]),max(dox[,4]),by=10))$y)
+	names(doxApprox)=c("minOfTS","lake1dox","lake2dox")
+
+	# make time units hourly
+	doxApprox[,1]=doxApprox[,1]/(60)
+
+	# trim to hourly observations
+	doxApproxHourly=doxApprox[doxApprox[,1]%%1==0,]
+
+	# standardize time series
+	doxApproxHourlySTD=doxApproxHourly
+	doxApproxHourlySTD[,2]=(doxApproxHourly[,2]-mean(doxApproxHourly[,2]))/sd(doxApproxHourly[,2])
+	doxApproxHourlySTD[,3]=(doxApproxHourly[,3]-mean(doxApproxHourly[,3]))/sd(doxApproxHourly[,3])
+
+	coher=wtc(doxApproxHourlySTD[,1:2],doxApproxHourlySTD[,c(1,3)],nrands=MCiters)
+
+	daily=which(abs(coher$period-24)==min(abs(coher$period-24)))
+	
+	return(round(mean(coher$rsq[daily,]),4))
+}
+
+pairwise_dailyWTC('BA','BO')
+
+lakes=c('BA','BO','BR','CB','CR','EL','HB','MO','WA','WL')
+
+pwWTC=matrix(NA,length(lakes),length(lakes))
+for(i in 1:length(lakes)){
+	for(j in 1:i){
+		pwWTC[i,j]=pairwise_dailyWTC(lakes[i],lakes[j])
+	}
+}
+
+rownames(pwWTC)=lakes
+colnames(pwWTC)=lakes
+
+library(vegan)
+dev.new()
+WTCclust=hclust(as.dist(1-pwWTC))
+plot(WTCclust)
